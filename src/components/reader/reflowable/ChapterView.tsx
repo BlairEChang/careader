@@ -25,8 +25,8 @@ const FONT_STACK: Record<FontFamily, string> = {
   monospace: '"JetBrains Mono", Consolas, "Courier New", monospace',
 };
 
-// 章末/章首浮动按钮（paged 模式）
-const PAGE_CLICK_ZONES = { prev: 0.3, next: 0.7 } as const;
+// paged 模式点击分区：左半页上一页、右半页下一页
+const PAGE_CLICK_RATIO = 0.5;
 
 export interface ChapterViewProps {
   /** 整本书的章节（book-level percent 换算用）。 */
@@ -175,31 +175,75 @@ export function ChapterView({
     } else if (hasNextChapter) onChapterEnd(1);
   }, [page, pageCount, hasNextChapter, onChapterEnd]);
 
-  // ←/→ 翻页（仅 paged 模式；防止页面滚动被连带触发）。
+  // 键盘 + 滚轮交互（paged：←/→ 与滚轮翻页；scroll：↑↓/空格/PageUp/PageDown 滚动）。
   useEffect(() => {
-    if (!isPaged) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        goPrev();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        goNext();
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (isPaged) {
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          goPrev();
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          goNext();
+        }
+        return;
+      }
+      const sc = scrollRef.current;
+      if (!sc) return;
+      const half = () => Math.max(64, Math.floor(sc.clientHeight / 2));
+      switch (e.key) {
+        case "ArrowUp":
+          e.preventDefault();
+          sc.scrollBy({ top: -half(), behavior: "smooth" });
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          sc.scrollBy({ top: half(), behavior: "smooth" });
+          break;
+        case "PageUp":
+          e.preventDefault();
+          sc.scrollBy({ top: -sc.clientHeight, behavior: "smooth" });
+          break;
+        case "PageDown":
+          e.preventDefault();
+          sc.scrollBy({ top: sc.clientHeight, behavior: "smooth" });
+          break;
+        case " ":
+          e.preventDefault();
+          sc.scrollBy({ top: e.shiftKey ? -sc.clientHeight : sc.clientHeight, behavior: "smooth" });
+          break;
       }
     };
+    // paged：滚轮翻页（≥250ms 节流，避免触控板惯性一次滚过数页）。
+    let lastWheelAt = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (!isPaged || Math.abs(e.deltaY) < 1) return;
+      const now = performance.now();
+      if (now - lastWheelAt < 250) return;
+      lastWheelAt = now;
+      e.preventDefault();
+      if (e.deltaY > 0) goNext();
+      else goPrev();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("wheel", onWheel);
+    };
   }, [isPaged, goPrev, goNext]);
 
-  // 点击左右区域翻页；有文字选区时视为选词，不翻页。
+  // 点击左右半区翻页；有文字选区时视为选词，不翻页。
   const handleViewportClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
       const sel = window.getSelection();
       if (sel && sel.toString().length > 0) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
-      if (x < PAGE_CLICK_ZONES.prev) goPrev();
-      else if (x > PAGE_CLICK_ZONES.next) goNext();
+      if (x < PAGE_CLICK_RATIO) goPrev();
+      else goNext();
     },
     [goPrev, goNext],
   );
