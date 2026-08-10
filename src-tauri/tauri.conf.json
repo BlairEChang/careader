@@ -13,12 +13,18 @@
     "windows": [
       {
         "title": "careader",
-        "width": 800,
-        "height": 600
+        "width": 960,
+        "height": 640,
+        "minWidth": 700,
+        "minHeight": 500
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/library/**"]
+      }
     }
   },
   "bundle": {

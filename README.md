@@ -14,52 +14,55 @@
 
 ## 功能特性
 
-> 项目目前处于早期开发阶段（脚手架），以下为产品愿景。标注为「规划中」的功能尚未实现。
-
 | 特性 | 状态 |
 |---|---|
-| 丰富的格式支持（EPUB / PDF / TXT / Markdown / CBZ 漫画 / HTML） | 规划中 |
-| 本地书架管理：导入、分类、收藏 | 规划中 |
-| 阅读进度自动记忆与续读 | 规划中 |
-| 目录 (TOC) 导航与书签 | 规划中 |
-| 多种阅读模式：滚动 / 双页 / 全屏 | 规划中 |
-| 主题与字体自定义 | 规划中 |
+| 格式支持（EPUB / MOBI / TXT / Markdown / PDF） | ✅ 已实现 |
+| 本地书架管理：导入、移除、搜索、排序 | ✅ 已实现（分类、收藏规划中） |
+| 阅读进度自动记忆与续读 | ✅ 已实现 |
+| 目录 (TOC) 导航、书签、划线标注与笔记 | ✅ 已实现（含 PDF 页码书签） |
+| 阅读模式：分页 / 滚动、翻页动画 | ✅ 已实现（双页、全屏规划中） |
+| 主题（浅色 / 米色 / 深色）与字体自定义 | ✅ 已实现 |
+| 导入失败恢复（失败清单 + 重试） | ✅ 已实现 |
+| 漫画 (CBZ / 图片序列) / HTML 格式 | 规划中 |
 | 全文搜索与标注导出 | 规划中 |
-| 完全离线、本地文件优先，隐私友好 | 规划中 |
+| 完全离线、本地文件优先，隐私友好 | ✅ 符合设计 |
 
 ## 规划清单
 
 **已实现**
 
 - [x] Tauri 2 + React 桌面应用脚手架
+- [x] EPUB / MOBI / TXT / Markdown / PDF 解析与渲染
+- [x] 本地书架：导入、移除、搜索、排序
+- [x] 阅读进度记忆与续读
+- [x] 目录导航、书签、划线标注与笔记
+- [x] 阅读模式（分页 / 滚动）与翻页动画
+- [x] 主题（浅色 / 米色 / 深色）与字体设置
 
 **规划中**
 
-- [ ] EPUB 解析与渲染
-- [ ] 纯文本 / Markdown 阅读
-- [ ] PDF 阅读
 - [ ] 漫画 (CBZ / 图片序列) 阅读
-- [ ] 本地书架：导入、分类、收藏
-- [ ] 阅读进度记忆与续读
-- [ ] 目录导航、书签、划线标注
-- [ ] 阅读模式（滚动 / 双页 / 全屏）
-- [ ] 主题与字体设置
+- [ ] HTML 格式阅读
+- [ ] 书架分类、收藏
+- [ ] 双页 / 全屏阅读模式
 - [ ] 全文搜索
+- [ ] 标注导出
 
 ## 路线图
 
-- **Phase 1 — 骨架搭建**（当前阶段）：桌面窗口、文件打开与选择、前端框架搭建
-- **Phase 2 — 核心阅读**：文本类格式（TXT / Markdown / EPUB）的解析与渲染、阅读模式
-- **Phase 3 — 书架与进度**：本地书架管理、阅读进度记忆、搜索
-- **Phase 4 — 打磨发布**：主题定制、性能优化、打包分发与文档完善
+- **Phase 1 — 骨架搭建** ✅：桌面窗口、文件打开与选择、前端框架搭建
+- **Phase 2 — 核心阅读** ✅：文本类格式（TXT / Markdown / EPUB / MOBI）的解析与渲染、阅读模式
+- **Phase 3 — 书架与进度** ◑：本地书架管理、阅读进度记忆已完成；全文搜索规划中
+- **Phase 4 — 打磨发布** ◑：主题定制、性能优化已完成；双页 / 全屏、标注导出、打包分发与文档完善待推进
 
 ## 技术栈
 
 | 层 | 技术 |
 |---|---|
-| 桌面框架 | [Tauri 2](https://tauri.app)（Rust） |
+| 桌面框架 | [Tauri 2](https://tauri.app)（Rust，SQLite 持久化） |
 | 前端 | [React 19](https://react.dev) + [TypeScript](https://www.typescriptlang.org) |
 | 构建工具 | [Vite](https://vite.dev) |
+| PDF 渲染 | [pdf.js](https://mozilla.github.io/pdf.js/) |
 | 包管理 | [pnpm](https://pnpm.io) |
 
 ## 系统要求
@@ -89,20 +92,34 @@ pnpm dev
 pnpm tauri build
 ```
 
+测试与检查：
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml   # Rust 解析/数据库/命令测试
+pnpm exec tsc --noEmit                            # 前端类型检查
+pnpm build                                        # 前端构建
+```
+
 > 完整命令参考：[package.json](package.json)。
 
 ## 架构结构
 
 ```
 careader/
-├── src/              # React 前端
-│   ├── App.tsx       # 主界面
-│   └── main.tsx      # 入口
-├── src-tauri/        # Rust 后端（Tauri 应用壳）
-│   ├── src/lib.rs    # 后端逻辑与 Tauri 命令（文件系统访问等）
+├── docs/architecture.md  # 架构设计（模块划分、数据模型、M1–M6 状态与偏差记录）
+├── src/                  # React 前端
+│   ├── App.tsx           # 主界面（书架 ↔ 阅读器）
+│   ├── components/       # library / reader / notes / common
+│   ├── hooks/            # 进度回写、内容组装、标注
+│   ├── store/            # zustand：library / reader / settings
+│   └── lib/              # api 封装、类型、主题、标注换算
+├── src-tauri/            # Rust 后端
+│   ├── src/commands/     # library / reading / annotations / settings
+│   ├── src/parsers/      # epub / mobi / plaintext / pdf → 统一 DocumentModel
+│   ├── src/storage/      # SQLite + 书库文件系统
 │   └── tauri.conf.json
-├── index.html        # Vite 入口 HTML
-├── vite.config.ts    # Vite 配置
+├── index.html            # Vite 入口 HTML
+├── vite.config.ts        # Vite 配置（含 pdf.js 静态资源插件）
 └── package.json
 ```
 

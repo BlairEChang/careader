@@ -1,0 +1,872 @@
+/* 阅读器样式（docs/architecture.md §4.1 / §6.2 / §6.6）。
+   主题变量 --reader-* 由 lib/theme.ts 写入 <html>（applyTheme）；
+   字号/行距/字体族由 ChapterView 以 inline CSS 变量驱动。
+   类名与 global.css 不重叠，避免加载顺序冲突。 */
+
+.reader-app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--reader-bg, #f7f6f3);
+  color: var(--reader-fg, #2b2926);
+  overflow: hidden;
+}
+
+.reader-app .btn {
+  background: var(--reader-elevated, #ffffff);
+  border-color: var(--reader-border, #e4e1da);
+  color: var(--reader-fg, #2b2926);
+}
+
+.reader-app .btn-ghost {
+  background: transparent;
+  color: var(--reader-fg-muted, #8a857c);
+}
+
+.reader-app .btn-ghost:hover {
+  color: var(--reader-fg, #2b2926);
+  background: var(--hover, rgba(0, 0, 0, 0.05));
+}
+
+/* ---------- 顶栏 ---------- */
+
+.reader-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+  background: var(--reader-elevated, #ffffff);
+  flex-shrink: 0;
+}
+
+.reader-topbar-back {
+  flex-shrink: 0;
+}
+
+.reader-topbar-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-topbar-title h1 {
+  margin: 0;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reader-topbar-title p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+}
+
+.reader-topbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.reader-topbar-btn {
+  font-size: 13px;
+  padding: 6px 12px;
+}
+
+/* ---------- 主区 ---------- */
+
+.reader-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+.reader-loading {
+  margin: auto;
+}
+
+.reader-placeholder {
+  margin: auto;
+  color: var(--reader-fg-muted, #8a857c);
+  font-size: 14px;
+}
+
+/* ---------- 正文（分页） ---------- */
+
+.chapter-area {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  font-size: var(--reader-font-size, 18px);
+  line-height: var(--reader-line-height, 1.8);
+  font-family: var(--reader-font-family, serif);
+  color: var(--reader-fg, #2b2926);
+}
+
+/* 度量与展示共用：列宽=页宽、列高=视口高、column-fill: auto → 内容逐列溢出，
+   scrollWidth/列宽 = 页数，translateX(-k×列宽) 显示第 k 页。 */
+.chapter-viewport {
+  position: relative;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+/* 翻页过渡（M6）：默认无动画（初始定位/重测不得横跨全书滑动），
+   用户显式翻页（章节内 setPage）后由 ChapterView 加上 .chapter-pager-anim
+   启用 200ms 滑动；transform 不影响 scrollWidth 度量，页数与测量解耦。 */
+.chapter-pager {
+  height: 100%;
+  column-fill: auto;
+  column-gap: 0;
+}
+
+.chapter-pager-anim {
+  transition: transform 0.2s ease;
+  will-change: transform;
+}
+
+.chapter-h {
+  font-size: 1.35em;
+  line-height: 1.5;
+  margin: 0.9em 0 0.6em;
+  break-inside: avoid;
+}
+
+.chapter-p {
+  margin: 0 0 1em;
+  text-align: justify;
+  text-indent: 2em;
+}
+
+.chapter-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1em auto;
+  break-inside: avoid;
+  border-radius: 4px;
+}
+
+.chapter-nav {
+  position: absolute;
+  bottom: 14px;
+  font-size: 13px;
+  padding: 6px 12px;
+  z-index: 2;
+}
+
+.chapter-nav-prev {
+  left: 14px;
+}
+
+.chapter-nav-next {
+  right: 14px;
+}
+
+.chapter-page-indicator {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+  opacity: 0.75;
+  user-select: none;
+}
+
+/* ---------- 正文（滚动） ---------- */
+
+.chapter-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 48px 56px;
+}
+
+.chapter-scroll-end {
+  display: block;
+  margin: 24px auto 0;
+  font-size: 13px;
+  padding: 6px 16px;
+}
+
+/* ---------- 底部进度条 ---------- */
+
+.reader-progress {
+  position: relative;
+  height: 26px;
+  flex-shrink: 0;
+  background: var(--reader-elevated, #ffffff);
+  border-top: 1px solid var(--reader-border, #e4e1da);
+  cursor: pointer;
+}
+
+.reader-progress-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--reader-accent, #c2643a);
+  opacity: 0.4;
+}
+
+.reader-progress:hover .reader-progress-fill {
+  opacity: 0.6;
+}
+
+.reader-progress-label {
+  position: absolute;
+  right: 10px;
+  top: 4px;
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+  user-select: none;
+}
+
+/* ---------- 目录抽屉 ---------- */
+
+.toc-overlay,
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 90;
+  display: flex;
+}
+
+.toc-drawer {
+  width: min(320px, 85vw);
+  height: 100%;
+  background: var(--reader-elevated, #ffffff);
+  color: var(--reader-fg, #2b2926);
+  box-shadow: var(--reader-shadow, 0 2px 10px rgba(0, 0, 0, 0.08));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.toc-header,
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+  flex-shrink: 0;
+}
+
+.toc-header h3,
+.settings-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.toc-close,
+.settings-close {
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+
+.toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.toc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 16px;
+  border: none;
+  background: transparent;
+  color: var(--reader-fg, #2b2926);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toc-item:hover {
+  background: var(--hover, rgba(0, 0, 0, 0.05));
+}
+
+.toc-item-active {
+  background: var(--reader-accent, #c2643a);
+  color: #fff;
+}
+
+.toc-item-active:hover {
+  background: var(--reader-accent-strong, #a8502c);
+  color: #fff;
+}
+
+.toc-index {
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+  min-width: 22px;
+}
+
+.toc-item-active .toc-index {
+  color: #fff;
+  opacity: 0.8;
+}
+
+.toc-empty {
+  padding: 24px 16px;
+  color: var(--reader-fg-muted, #8a857c);
+}
+
+/* ---------- 设置面板 ---------- */
+
+.settings-overlay {
+  justify-content: flex-end;
+}
+
+.settings-panel {
+  width: min(320px, 85vw);
+  height: 100%;
+  background: var(--reader-elevated, #ffffff);
+  color: var(--reader-fg, #2b2926);
+  box-shadow: var(--reader-shadow, 0 2px 10px rgba(0, 0, 0, 0.08));
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-panel {
+  padding: 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+}
+
+.settings-label {
+  font-size: 14px;
+  color: var(--reader-fg-muted, #8a857c);
+  flex-shrink: 0;
+}
+
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-step {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.settings-value {
+  min-width: 52px;
+  text-align: center;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-segment {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-segbtn {
+  font-size: 13px;
+  padding: 6px 10px;
+}
+
+.settings-segbtn-active {
+  background: var(--reader-accent, #c2643a);
+  border-color: var(--reader-accent, #c2643a);
+  color: #fff;
+}
+
+.settings-segbtn-active:hover {
+  background: var(--reader-accent-strong, #a8502c);
+  color: #fff;
+}
+
+/* ---------- 书架进度角标（BookCard 用，样式随全局变量） ---------- */
+
+.book-progress-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: var(--primary, #c2643a);
+  color: #fff;
+  line-height: 1.4;
+}
+
+/* ---------- 高亮标记（M4，docs/architecture.md §6.5） ---------- */
+
+mark.hl {
+  border-radius: 2px;
+  padding: 0 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  cursor: pointer;
+}
+
+.hl-yellow {
+  background: rgba(233, 194, 63, 0.45);
+}
+
+.hl-orange {
+  background: rgba(224, 138, 60, 0.45);
+}
+
+.hl-green {
+  background: rgba(124, 178, 90, 0.45);
+}
+
+.hl-blue {
+  background: rgba(91, 155, 213, 0.45);
+}
+
+.hl-purple {
+  background: rgba(155, 127, 212, 0.45);
+}
+
+mark.hl:hover {
+  filter: brightness(0.93);
+}
+
+/* ---------- 高亮气泡（新建/编辑） ---------- */
+
+.annotation-bubble {
+  position: fixed;
+  z-index: 110;
+  width: 264px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: var(--reader-elevated, #ffffff);
+  color: var(--reader-fg, #2b2926);
+  border: 1px solid var(--reader-border, #e4e1da);
+  border-radius: 10px;
+  box-shadow: var(--reader-shadow, 0 6px 24px rgba(0, 0, 0, 0.18));
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.annotation-bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.annotation-bubble-kind {
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+}
+
+.annotation-bubble-close {
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 6px;
+}
+
+.annotation-bubble-quote {
+  margin: 0 0 8px;
+  max-height: 54px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: var(--reader-fg-muted, #8a857c);
+}
+
+.annotation-bubble-note {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 8px;
+  resize: vertical;
+  border: 1px solid var(--reader-border, #e4e1da);
+  border-radius: 6px;
+  background: var(--reader-bg, #f7f6f3);
+  color: var(--reader-fg, #2b2926);
+  font: inherit;
+  font-size: 13px;
+}
+
+.annotation-bubble-note:focus {
+  outline: 1px solid var(--reader-accent, #c2643a);
+}
+
+.annotation-bubble-colors {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.annotation-bubble-color {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.annotation-bubble-color-active {
+  border-color: var(--reader-fg, #2b2926);
+}
+
+.annotation-bubble-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.annotation-bubble-actions .annotation-bubble-delete {
+  margin-right: auto;
+  color: var(--danger, #c0392b);
+}
+
+.annotation-bubble-actions .btn {
+  font-size: 13px;
+  padding: 5px 14px;
+}
+
+/* ---------- 笔记/书签抽屉（M4） ---------- */
+
+.notes-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 90;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.notes-drawer {
+  width: min(340px, 88vw);
+  height: 100%;
+  background: var(--reader-elevated, #ffffff);
+  color: var(--reader-fg, #2b2926);
+  box-shadow: var(--reader-shadow, 0 2px 10px rgba(0, 0, 0, 0.08));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+  flex-shrink: 0;
+}
+
+.notes-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.notes-close {
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+
+.notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.notes-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+  cursor: pointer;
+}
+
+.notes-item:hover {
+  background: var(--hover, rgba(0, 0, 0, 0.04));
+}
+
+.notes-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.notes-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notes-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+}
+
+.notes-kind {
+  flex-shrink: 0;
+}
+
+.notes-chapter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-quote {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--reader-fg, #2b2926);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.notes-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--reader-fg-muted, #8a857c);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notes-delete {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 3px 8px;
+  opacity: 0.7;
+}
+
+.notes-delete:hover {
+  opacity: 1;
+}
+
+.notes-empty {
+  padding: 24px 16px;
+  color: var(--reader-fg-muted, #8a857c);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* ---------- PDF 整页管线（M5，docs/architecture.md §6.4） ---------- */
+
+.pdf-viewer {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+  background: var(--reader-elevated, #ffffff);
+  flex-shrink: 0;
+}
+
+.pdf-toolbar .btn {
+  font-size: 13px;
+  padding: 4px 10px;
+  line-height: 1.4;
+}
+
+.pdf-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--reader-border, #e4e1da);
+  margin: 0 2px;
+}
+
+.pdf-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-bookmark {
+  font-size: 13px;
+}
+
+.pdf-bookmark-active {
+  background: var(--reader-accent, #c2643a);
+  border-color: var(--reader-accent, #c2643a);
+  color: #fff;
+}
+
+.pdf-bookmark-active:hover {
+  background: var(--reader-accent-strong, #a8502c);
+  color: #fff;
+}
+
+.pdf-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.pdf-center {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--reader-fg-muted, #8a857c);
+  font-size: 14px;
+}
+
+.pdf-center p {
+  margin: 0;
+}
+
+.pdf-error p {
+  color: var(--danger, #c0392b);
+  max-width: 70%;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.pdf-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 0 28px;
+  background: var(--reader-bg, #f7f6f3);
+}
+
+.pdf-sheet {
+  position: relative;
+  margin: 0 auto;
+}
+
+.pdf-page {
+  position: absolute;
+  top: 0;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+/* 大纲下拉面板 */
+
+.pdf-outline-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.pdf-outline-menu {
+  position: absolute;
+  top: 38px;
+  right: 10px;
+  width: min(300px, 80vw);
+  max-height: 55vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--reader-elevated, #ffffff);
+  color: var(--reader-fg, #2b2926);
+  border: 1px solid var(--reader-border, #e4e1da);
+  border-radius: 8px;
+  box-shadow: var(--reader-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+  overflow: hidden;
+}
+
+.pdf-outline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--reader-border, #e4e1da);
+  flex-shrink: 0;
+}
+
+.pdf-outline-header h3 {
+  margin: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-outline-close {
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 6px;
+}
+
+.pdf-outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  overflow-y: auto;
+}
+
+.pdf-outline-item {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  color: var(--reader-fg, #2b2926);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-outline-item:hover {
+  background: var(--hover, rgba(0, 0, 0, 0.05));
+}
+
+.pdf-outline-empty {
+  padding: 16px;
+  margin: 0;
+  color: var(--reader-fg-muted, #8a857c);
+  font-size: 13px;
+}

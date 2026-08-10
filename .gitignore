@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# pdf.js 运行期资源（vite.config.ts buildStart 从 node_modules 复制生成）
+public/pdfjs/
