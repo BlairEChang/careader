@@ -20,6 +20,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
+# M1：Android 移动端导入。dialog.open() 返回 content:// URI，无法用 std::fs 直接读，
+# 经该插件的 ContentResolver（open_file_readable → std::fs::File）流式拷入书库。
+# 桌面构建下该插件为空实现（open_file_readable 返回 Err），不影响桌面行为。
+tauri-plugin-android-fs = "29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

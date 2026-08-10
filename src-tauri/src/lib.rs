@@ -28,6 +28,7 @@ pub struct AppState {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_android_fs::init())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -44,6 +45,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::library::import_books,
+            commands::library::import_books_from_uris,
             commands::library::list_books,
             commands::library::remove_book,
             commands::reading::open_book,
@@ -54,6 +56,7 @@ pub fn run() {
             commands::annotations::list_annotations,
             commands::annotations::update_annotation,
             commands::annotations::delete_annotation,
+            commands::assets::read_asset_bytes,
             commands::settings::get_settings,
             commands::settings::set_settings,
         ])

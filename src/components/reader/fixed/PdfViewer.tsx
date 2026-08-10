@@ -79,10 +79,13 @@ type LoadState =
   | { phase: "error"; message: string }
   | { phase: "ready" };
 
-/** pdf.js 异常 → 可读中文文案（error 状态展示用）。 */
+/** pdf.js / IPC 异常 → 可读中文文案（error 状态展示用）。 */
 function pdfErrorLabel(e: unknown): string {
-  const name = (e as { name?: string })?.name ?? "";
-  const msg = (e as { message?: string })?.message ?? String(e);
+  const err = e as { code?: string; message?: string; name?: string };
+  // IPC 拒绝（read_asset_bytes 返回的 AppError）用 describeError 翻译。
+  if (err.code) return describeError(e);
+  const name = err.name ?? "";
+  const msg = err.message ?? String(e);
   switch (name) {
     case "MissingPDFException":
       return "无法打开 PDF：文件不存在（可能已被移动或删除）。";
@@ -241,15 +244,15 @@ export function PdfViewer({
 
     const url = assetUrl(book.filePath);
     // 首选流式 URL 加载（asset protocol 支持 Range/Content-Type，超大文件友好）；
-    // 个别 WebView 对自定义 scheme 的 fetch 支持不完整时，回退为字节流加载
-    // （getDocument({ data })），保证 dev/prod 各平台都能打开。
-    let loadingTask: PDFDocumentLoadingTask = getDocument({
-      url,
+    // 失败后按“同源 fetch → IPC 字节流”逐级回退，保证 dev/prod 各平台都能打开
+    // （Android 部分真机 asset protocol 失效，见 docs/android-port.md §4.2）。
+    const pdfOpts = {
       cMapUrl: "/pdfjs/cmaps/",
       cMapPacked: true,
       standardFontDataUrl: "/pdfjs/standard_fonts/",
       wasmUrl: "/pdfjs/wasm/",
-    });
+    };
+    let loadingTask: PDFDocumentLoadingTask = getDocument({ ...pdfOpts, url });
     const fetchable = (e: unknown) => {
       const name = (e as { name?: string })?.name ?? "";
       const msg = (e as { message?: string })?.message ?? String(e);
@@ -259,24 +262,30 @@ export function PdfViewer({
         /fetch|network|protocol|asset|unable to load/i.test(msg)
       );
     };
+    const withData = (data: ArrayBuffer | Uint8Array): Promise<PDFDocumentProxy> => {
+      const task = getDocument({ ...pdfOpts, data });
+      loadingTask = task;
+      return task.promise;
+    };
     const load = async (): Promise<PDFDocumentProxy> => {
       try {
         return await loadingTask.promise;
       } catch (e) {
         if (!alive || !fetchable(e)) throw e;
-        // 首次加载疑似网络层失败：整体销毁后用字节数据重试一次。
+        // 首次加载疑似网络层失败：整体销毁后按“fetch → IPC 字节流”重试。
         void loadingTask.destroy();
-        const resp = await fetch(url);
-        if (!resp.ok) throw e;
-        const task = getDocument({
-          cMapUrl: "/pdfjs/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: "/pdfjs/standard_fonts/",
-          wasmUrl: "/pdfjs/wasm/",
-          data: await resp.arrayBuffer(),
-        });
-        loadingTask = task;
-        return task.promise;
+        // 二级回退：同源 fetch（自定义 scheme 的 URL 在个别 WebView 的 fetch
+        // 支持不完整，此时一并失败，落到三级回退）。
+        try {
+          const resp = await fetch(url);
+          if (resp.ok) return withData(await resp.arrayBuffer());
+        } catch {
+          // 落到三级回退。
+        }
+        // 三级回退：asset protocol 在部分 Android 真机加载失败（tauri#14776），
+        // 经 read_asset_bytes 读取字节交给 pdf.js（大文件全量入内存，回退路径已知代价）。
+        const bytes = await api.readAssetBytes(book.filePath);
+        return withData(new Uint8Array(bytes));
       }
     };
     const destroyIfStale = () => {

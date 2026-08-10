@@ -4,7 +4,7 @@
 // （lastFailed 记最近一次导入的失败清单，由书架摘要条渲染并可重试）。
 
 import { create } from "zustand";
-import { api, describeError, toast } from "../lib/api";
+import { api, describeError, isAndroid, toast } from "../lib/api";
 import type { Book, FailedImport } from "../lib/types";
 
 export type SortMode = "recent" | "lastOpened" | "title";
@@ -84,7 +84,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (paths.length === 0) return;
     set({ importing: true });
     try {
-      const result = await api.importBooks(paths);
+      const result = isAndroid() ? await api.importBooksFromUris(paths) : await api.importBooks(paths);
       set({ books: [...result.succeeded, ...get().books] });
       if (result.succeeded.length > 0) {
         toast(`已导入 ${result.succeeded.length} 本书`, "success");

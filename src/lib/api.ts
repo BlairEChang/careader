@@ -39,8 +39,16 @@ export function toast(message: string, kind: ToastKind = "info"): void {
   );
 }
 
+/** 运行平台是否为 Android（Tauri Android WebView 的 UA 含 Android）。 */
+export function isAndroid(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("android");
+}
+
 export const api = {
   importBooks: (paths: string[]) => invoke<ImportResult>("import_books", { paths }),
+  /** Android：dialog.open() 返回 content:// URI，走 ContentResolver 导入命令。 */
+  importBooksFromUris: (uris: string[]) =>
+    invoke<ImportResult>("import_books_from_uris", { uris }),
   listBooks: () => invoke<Book[]>("list_books"),
   removeBook: (id: number) => invoke<void>("remove_book", { id }),
 
@@ -83,4 +91,7 @@ export const api = {
 
   getSettings: () => invoke<Record<string, unknown>>("get_settings"),
   setSettings: (key: string, value: unknown) => invoke<void>("set_settings", { key, value }),
+
+  /** 读取书库内文件字节（asset protocol 加载失败时的回退，见 lib/assets.ts）。 */
+  readAssetBytes: (path: string) => invoke<number[]>("read_asset_bytes", { path }),
 };
