@@ -1,6 +1,6 @@
 # Careader Android 移植评估报告
 
-> 状态：评估完成，待实施。本报告记录移植可行性、阻塞点、风险与实施路线。
+> 状态：M0–M3 已实施完毕并通过编译验证（桌面 cargo check、`aarch64-linux-android` cargo check、`pnpm build`）；M4 真机回归与签名打包待做。本报告记录移植可行性、阻塞点、风险与实施路线。
 
 ## 1. 结论
 
@@ -47,22 +47,29 @@
 
 ### 4.1 【阻塞点】文件导入 —— Android 返回 content:// URI
 
-**现状**：`ImportDialog.tsx` `dialog.open()` 返回路径 → `import_books` 用 `std::fs::copy()` 拷入书库（`commands/library.rs`）。
+**现状（已解决）**：`ImportDialog.tsx` `dialog.open()` 返回路径 → `import_books` 用 `std::fs::copy()` 拷入书库（`commands/library.rs`）。
 
-**问题**：Tauri 官方明确，Android 上 `dialog.open()` 返回 `content://` URI（由 SAF 内容提供者授予），**不是文件系统路径**，`std::fs` 无法读取，导入必然失败。这是整个移植中唯一必须重写的链路。
+**问题（已实施）**：Tauri 官方明确，Android 上 `dialog.open()` 返回 `content://` URI（由 SAF 内容提供者授予），**不是文件系统路径**，`std::fs` 无法读取，导入必然失败。
 
-**已定方案（Rust ContentResolver 命令）**：新增 Android 专属 command，用 `ContentResolver.openInputStream(contentUri)` 流式把源文件拷入书库目录，随后复用现有解析流程。
+**实施方案（已落地）**：新增 command `import_books_from_uris`（`commands/library.rs`），经 `tauri-plugin-android-fs`（v29，ContentResolver 封装）读取：
 
-- Rust 侧需引入 `tauri` 移动端扩展能力（`android_activity`/`jni`）或使用第三方 `tauri-plugin-android-fs`（其 `open_file(contentUri)` 可直接返回 `std::fs::File`）。
-- 桌面端 `import_books` 保持现状，按 `#[cfg(mobile)]` / 运行时平台分支分流。
-- 优点：PDF/大文件无内存压力，导入体验与桌面一致。
+- `Cargo.toml` 引入 `tauri-plugin-android-fs = "29"`，`lib.rs` `.plugin(tauri_plugin_android_fs::init())`；该插件桌面构建为空实现（`open_file_readable` 返回 NOT_ANDROID），不影响桌面。
+- 流程：`FsUri::from_uri(uri)` → `afs.get_name()` 取文件名 → `afs.open_file_readable()` 得 `std::fs::File` → `std::io::copy` 流式写入书库 `.import-{name}` 临时文件 → 复用现有 `import_one`（格式探测/拷贝入库/解析/清理）→ 删除临时文件；失败逐本记入 `failed`，批次语义与桌面一致。
+- 前端：`api.ts` 新增 `isAndroid()`（UA 检测）与 `api.importBooksFromUris`；`libraryStore.ts` `importBooks` 按平台分流。
+- 优点：PDF/大文件流式拷贝无内存压力，导入体验与桌面一致。
+- 待真机验证：SAF 授予的 URI 权限在进程内有效期、`get_name` 对无 DISPLAY_NAME 提供者的回退行为。
 
 ### 4.2 【风险】asset protocol 真机兼容性
 
-`convertFileSrc` 生成的 URL 在 Android 为 `http://<identifier>.localhost/...`。已确认存在开放 bug（tauri#14776）：**`app_data_dir` 下文件在模拟器正常、部分真机加载失败**。当前 `csp: null` 不受 CSP 影响，但需：
+`convertFileSrc` 生成的 URL 在 Android 为 `http://<identifier>.localhost/...`。已确认存在开放 bug（tauri#14776）：**`app_data_dir` 下文件在模拟器正常、部分真机加载失败**。当前 `csp: null` 不受 CSP 影响。
 
-1. 真机验证书架封面、EPUB 图片、PDF 全文加载；
-2. 若失败，回退方案：新增 `read_asset_bytes` 命令流式返回字节 → 前端 `Blob`/`data:` URL（封面/图片可用，PDF 用 `getDocument({ data })` 已有该路径，见 `PdfViewer.tsx` 双路径设计）。
+**回退方案（已实施为三层降级，失败自动切换，无需人工干预）**：
+
+1. 封面（`BookCard.tsx` CoverImage）：`convertFileSrc` URL → `onError` 时改 `assetBlobUrl()`（`read_asset_bytes` → Blob URL，卸载 revoke）。
+2. PDF（`PdfViewer.tsx`）：URL → fetch → `read_asset_bytes` → `getDocument({ data: Uint8Array })`。
+3. 新增 `read_asset_bytes` command（`commands/assets.rs`）流式返回 `Vec<u8>`（经 serde 序列化），含书库目录路径白名单校验（`resolve_in_library`，剥 `\\?\` 前缀 + 词法归一化 + 前缀校验 + canonicalize 双检）。
+
+**仍待真机验证**：书架封面、EPUB 图片、PDF 全文在真机 WebView 的最终加载表现；`read_asset_bytes` 的 `canonicalize` 在 Android 沙箱下的路径解析是否与桌面一致。
 
 ### 4.3 【低风险项】
 
@@ -72,23 +79,25 @@
 
 ## 5. 工作量估算（不含 UI 打磨）
 
-| 阶段 | 内容 | 估算 |
-|---|---|---|
-| M0 | 环境搭建 + `pnpm tauri android init` + 空壳 APK 跑通 | 0.5–1 人日 |
-| M1 | ContentResolver 导入命令 + 前后端分流改造 | 1–2 人日 |
-| M2 | asset protocol 真机验证 + 字节流回退 | 0.5–1 人日 |
-| M3 | 触屏 UI 适配（翻页/标注/返回键/响应式） | 2–3 人日 |
-| M4 | 真机全链路回归 + 打包 | 0.5–1 人日 |
+| 阶段 | 内容 | 估算 | 状态 |
+|---|---|---|---|
+| M0 | 环境搭建 + `pnpm tauri android init` + 空壳 APK 跑通 | 0.5–1 人日 | ✅ 完成 |
+| M1 | ContentResolver 导入命令 + 前后端分流改造 | 1–2 人日 | ✅ 完成（tauri-plugin-android-fs） |
+| M2 | asset protocol 真机验证 + 字节流回退 | 0.5–1 人日 | ✅ 完成（三层降级已落地，真机待验） |
+| M3 | 触屏 UI 适配（翻页/标注/返回键/响应式） | 2–3 人日 | ✅ 完成（编译通过，真机待验） |
+| M4 | 真机全链路回归 + 打包 | 0.5–1 人日 | ⏳ 待做 |
 
 ## 6. 推荐实施路线
 
-1. **M0** 搭建移动工程，确认构建链路。
-2. **M1** 打通导入（唯一阻塞点），先验证 TXT/EPUB 在真机可读可续读。
-3. **M2** 验证 PDF/图片 asset 加载，决定是否需要回退路径。
-4. **M3** 触屏适配（此时已有可运行版本，边适配边验收）。
-5. **M4** 回归 + 签名打包。
+1. **M0** 搭建移动工程，确认构建链路。 ✅
+2. **M1** 打通导入（唯一阻塞点），先验证 TXT/EPUB 在真机可读可续读。 ✅（真机待验）
+3. **M2** 验证 PDF/图片 asset 加载，决定是否需要回退路径。 ✅（回退已落地，真机待验）
+4. **M3** 触屏适配（此时已有可运行版本，边适配边验收）。 ✅（真机待验）
+5. **M4** 回归 + 签名打包。 ⏳
 
 ## 7. 关键决策记录
 
-- **导入方案**：采用 Rust ContentResolver 命令（桌面端 `import_books` 保持不变）。
-- **目标范围**：先完成评估报告落盘，尚未开始实施。
+- **导入方案**：采用 Rust ContentResolver 命令（桌面端 `import_books` 保持不变）。落地时未用 JNI 手写（tauri 2.11 未公开 Activity 访问 API），改用 `tauri-plugin-android-fs` v29（`open_file_readable` 直接返回 `std::fs::File`）。
+- **asset 回退**：不依赖运行时开关，前端三级降级自动切换；新增 `read_asset_bytes` 命令（含路径白名单校验），默认编译进全部平台。
+- **触屏适配**：翻页采用滑动 + 左右点击区；标注用长按选中文本弹气泡；Android 返回键用 `@tauri-apps/api/app` 的 `onBackButtonPress`（Tauri 2.9+ 内置，仅转发事件），卸载时 unregister。
+- **目标范围**：M0–M3 已实施完毕，`src-tauri/gen/android` 脚手架已生成（未签名，待 M4 打包）。
