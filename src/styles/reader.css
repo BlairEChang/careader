@@ -184,6 +184,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 8px 48px 56px;
+  overscroll-behavior: contain;
 }
 
 .chapter-scroll-end {
@@ -772,6 +773,7 @@ mark.hl:hover {
   overflow-x: hidden;
   padding: 18px 0 28px;
   background: var(--reader-bg, #f7f6f3);
+  overscroll-behavior: contain;
 }
 
 .pdf-sheet {
@@ -869,4 +871,75 @@ mark.hl:hover {
   margin: 0;
   color: var(--reader-fg-muted, #8a857c);
   font-size: 13px;
+}
+
+/* ---------- M3 触屏适配 ---------- */
+
+/* 触屏无 hover：长按链接/图片不弹系统菜单；正文 user-select 保持可选中以支持标注。 */
+.reader-app {
+  -webkit-touch-callout: none;
+}
+
+/* 高亮气泡：触屏设备放大按钮/色块到可手指点按的尺寸。 */
+.annotation-bubble-touch .btn {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.annotation-bubble-touch .annotation-bubble-close {
+  min-height: 32px;
+  font-size: 18px;
+}
+
+.annotation-bubble-touch .annotation-bubble-color {
+  width: 34px;
+  height: 34px;
+}
+
+.annotation-bubble-touch .annotation-bubble-note {
+  min-height: 76px;
+  font-size: 15px;
+}
+
+/* 手机：顶栏按钮紧凑/图标化，避免换行溢出。 */
+@media (max-width: 640px) {
+  .reader-topbar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .reader-topbar-btn {
+    font-size: 12px;
+    padding: 6px 8px;
+  }
+  .reader-topbar-title h1 {
+    font-size: 14px;
+  }
+  .reader-topbar-title p {
+    font-size: 11px;
+  }
+  .chapter-nav {
+    bottom: 10px;
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+}
+
+/* 手机：目录/设置/笔记面板改为全屏抽屉（桌面保持侧栏）。 */
+@media (max-width: 640px) {
+  .toc-drawer,
+  .settings-panel,
+  .notes-drawer {
+    width: 100%;
+  }
+}
+
+/* 滚动模式的横向留白在手机上收敛（正文更宽、点选目标更大）。 */
+@media (max-width: 640px) {
+  .chapter-scroll {
+    padding: 8px 20px 56px;
+  }
+  .pdf-toolbar .btn {
+    font-size: 12px;
+    padding: 6px 8px;
+  }
 }

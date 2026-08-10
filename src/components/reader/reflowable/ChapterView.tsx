@@ -6,7 +6,7 @@
 // 权重换算整书进度。
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode, TouchEvent } from "react";
 import type { Chapter, Element } from "../../../lib/types";
 import type { ReadingProgress } from "../../../hooks/useProgress";
 import type { FontFamily } from "../../../store/settingsStore";
@@ -27,6 +27,12 @@ const FONT_STACK: Record<FontFamily, string> = {
 
 // 章末/章首浮动按钮（paged 模式）
 const PAGE_CLICK_ZONES = { prev: 0.3, next: 0.7 } as const;
+// 触屏（pointer: coarse）：左右点击区放宽，中间留窄带做选词/点按。
+const TOUCH_PAGE_CLICK_ZONES = { prev: 0.4, next: 0.6 } as const;
+// 滑动翻页阈值：横向位移 ≥40px、纵向位移小于横向 1/1.5、
+// 且按压时长 ≤800ms（长按选词后滑动不翻页）。
+const SWIPE_THRESHOLD_PX = 40;
+const SWIPE_MAX_MS = 800;
 
 export interface ChapterViewProps {
   /** 整本书的章节（book-level percent 换算用）。 */
@@ -70,6 +76,12 @@ export function ChapterView({
   const len = useMemo(() => chapterCharLength(chapter), [chapter]);
   const hasPrevChapter = chapterIdx > 0;
   const hasNextChapter = chapterIdx < chapters.length - 1;
+
+  // 触屏 vs 桌面点击区：桌面保持 30%/70% 不变，粗指针设备放宽翻页区。
+  const clickZones = useMemo(
+    () => (window.matchMedia?.("(pointer: coarse)").matches ? TOUCH_PAGE_CLICK_ZONES : PAGE_CLICK_ZONES),
+    [],
+  );
 
   // ---------- 内容区尺寸（两种模式共用） ----------
   const areaRef = useRef<HTMLDivElement>(null);
@@ -194,12 +206,48 @@ export function ChapterView({
   // 点击左右区域翻页；有文字选区时视为选词，不翻页。
   const handleViewportClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
+      // 滑动翻页后随附的 click 吞掉，避免同一手势连翻两页。
+      if (swipeHandledRef.current) {
+        swipeHandledRef.current = false;
+        e.stopPropagation();
+        return;
+      }
       const sel = window.getSelection();
       if (sel && sel.toString().length > 0) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
-      if (x < PAGE_CLICK_ZONES.prev) goPrev();
-      else if (x > PAGE_CLICK_ZONES.next) goNext();
+      if (x < clickZones.prev) goPrev();
+      else if (x > clickZones.next) goNext();
+    },
+    [clickZones, goPrev, goNext],
+  );
+
+  // ---------- 触屏滑动翻页（仅 paged；scroll 走原生滚动，不挂此手势） ----------
+  const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const swipeHandledRef = useRef(false);
+
+  const handleTouchStart = useCallback((e: TouchEvent<HTMLDivElement>) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: TouchEvent<HTMLDivElement>) => {
+      const start = touchStartRef.current;
+      touchStartRef.current = null;
+      if (!start) return;
+      // 有文字选区（长按/拖选手势）→ 交还标注层，不翻页。
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      // 位移不足 / 纵向为主 / 长按后缓慢拖动 → 视为点按或选词，不翻页。
+      if (Math.abs(dx) < SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy) * 1.5) return;
+      if (Date.now() - start.t > SWIPE_MAX_MS) return;
+      swipeHandledRef.current = true;
+      if (dx < 0) goNext();
+      else goPrev();
     },
     [goPrev, goNext],
   );
@@ -309,6 +357,8 @@ export function ChapterView({
           className="chapter-viewport"
           style={{ width: size.w, height: size.h }}
           onClick={handleViewportClick}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
           <div
             ref={mountPager}

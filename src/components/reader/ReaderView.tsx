@@ -2,7 +2,8 @@
 // 正文（ChapterView 分页 or 滚动，PDF 走 PdfViewer 整页管线 §6.4）+
 // 底部进度条。契约：未选择书返回 null（App.tsx 借此切回书架视图）。
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { onBackButtonPress } from "@tauri-apps/api/app";
 import { Spinner } from "../common/Spinner";
 import { useReaderStore } from "../../store/readerStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -67,6 +68,33 @@ export function ReaderView() {
     setPdfSeek(null);
     prevBookIdRef.current = book?.id ?? null;
   }
+
+  // Android 返回键：面板开着先关面板，否则退出阅读器回书架。
+  // 用 @tauri-apps/api 的 onBackButtonPress（Tauri ≥2.9 原生事件）：注册监听后
+  // AppPlugin 收到 onBackPressed 只转发事件（不默认 goBack/退出），桌面注册不触发。
+  const backHandlerRef = useRef<() => void>(() => {});
+  backHandlerRef.current = () => {
+    if (notesOpen) setNotesOpen(false);
+    else if (tocOpen) setTocOpen(false);
+    else if (settingsOpen) setSettingsOpen(false);
+    else close();
+  };
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+    void onBackButtonPress(() => backHandlerRef.current())
+      .then((l) => {
+        if (active) unlisten = () => void l.unregister();
+        else void l.unregister();
+      })
+      .catch(() => {
+        // 非 Android / 旧版 Tauri 无此事件：静默降级。
+      });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
 
   const handleProgress = useCallback(
     (p: ReadingProgress) => {
