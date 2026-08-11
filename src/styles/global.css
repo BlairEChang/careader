@@ -30,6 +30,14 @@ body,
 body {
   background: var(--bg);
   color: var(--text);
+  /* 触屏：避免整页过度滚动/回弹（阅读器正文自身另设 overscroll-behavior）。 */
+  overscroll-behavior: none;
+}
+
+/* 触屏：长按图片/链接不弹系统菜单（iOS 生效；Android 正文选区不受影响）。 */
+img,
+a {
+  -webkit-touch-callout: none;
 }
 
 /* ---------- 通用 ---------- */
@@ -286,6 +294,37 @@ body {
 
 .book-card:hover .book-remove {
   opacity: 1;
+}
+
+/* ---------- 响应式：书架网格（M3 触屏适配） ---------- */
+
+/* 触屏无 hover：移除按钮常显，封面点击区保持可点。 */
+@media (pointer: coarse) {
+  .book-remove {
+    opacity: 1;
+  }
+}
+
+/* 手机：两列网格 + 收紧留白。 */
+@media (max-width: 640px) {
+  .library {
+    padding: 14px;
+  }
+  .library-header {
+    margin-bottom: 14px;
+  }
+  .book-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+}
+
+/* 平板：2-3 列（桌面 140px 起可到 4+ 列，触屏平板 180px 起步更易点选）。 */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .book-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 18px;
+  }
 }
 
 /* ---------- 阅读器（M1 占位） ---------- */

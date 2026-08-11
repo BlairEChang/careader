@@ -21,6 +21,16 @@ const BUBBLE_W = 268;
 const BUBBLE_H = 220;
 const MARGIN = 8;
 
+/** 触屏设备：同时具备 touch 事件与粗指针时启用触屏分支（长按/点按/键盘避让）。 */
+const IS_TOUCH =
+  typeof window !== "undefined" &&
+  ("ontouchstart" in window || (window.matchMedia?.("(pointer: coarse)").matches ?? false));
+
+/** 长按调起编辑气泡的时长（ms）；系统选区的长按时长由 WebView 自行决定。 */
+const LONG_PRESS_MS = 500;
+/** 手指移动超过该距离视为拖选/滚动，取消长按计时。 */
+const MOVE_CANCEL_PX = 10;
+
 interface CreateDraft {
   x: number;
   y: number;
@@ -76,6 +86,10 @@ export function AnnotationLayer({
   const bubbleRef = useRef<HTMLDivElement>(null);
   /** mouseup 刚打开/关闭气泡 → 紧随其后的 click 吞掉，防止翻页。 */
   const suppressClickRef = useRef(false);
+  /** 长按计时（触屏分支）：长按 mark.hl 调起编辑气泡。 */
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // ---------- 高亮渲染 ----------
   useLayoutEffect(() => {
@@ -178,10 +192,85 @@ export function AnnotationLayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [container, chapter, annotations]);
 
+  // ---------- 触屏交互（ontouchstart 存在时启用；与鼠标分支并存） ----------
+  // 桌面保留 mouseup 逻辑；触屏上长按调系统选区、touchend 选区非空 → 新建气泡，
+  // 点按/长按已存在的 mark.hl → 编辑气泡。
+  useEffect(() => {
+    if (!container || !IS_TOUCH) return;
+    const clearLongPress = () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      touchStartRef.current = { x: t.clientX, y: t.clientY };
+      longPressFiredRef.current = false;
+      clearLongPress();
+      // 长按高亮 → 编辑气泡（不拦截默认：系统选区/放大镜照常，气泡浮于其上）。
+      const target = e.target as Element | null;
+      const markEl = target?.closest("mark.hl") as HTMLElement | null;
+      if (!markEl) return;
+      const id = Number(markEl.getAttribute("data-annotation-id"));
+      const ann = annotations.find((a) => a.id === id);
+      if (!ann) return;
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null;
+        longPressFiredRef.current = true;
+        openEdit(ann, markEl);
+      }, LONG_PRESS_MS);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const start = touchStartRef.current;
+      const t = e.touches[0];
+      if (start && Math.hypot(t.clientX - start.x, t.clientY - start.y) > MOVE_CANCEL_PX) {
+        clearLongPress();
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      clearLongPress();
+      const start = touchStartRef.current;
+      touchStartRef.current = null;
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return; // 长按已调起编辑气泡，不重复处理。
+      }
+      const t = e.changedTouches[0];
+      // 系统选区已建立（长按选词/拖选手势）→ 新建气泡。
+      const span = selectionToChapterSpan(container, chapter);
+      if (span) {
+        openCreate(t.clientX, t.clientY, span);
+        return;
+      }
+      // 位移超阈值且无选区 → 滑动翻页/滚动手势，不弹编辑气泡（防止滑过标题误触）。
+      if (start && Math.hypot(t.clientX - start.x, t.clientY - start.y) > MOVE_CANCEL_PX) return;
+      // 无选区点按已存在的高亮 → 编辑气泡。
+      const target = e.target as Element | null;
+      const markEl = target?.closest("mark.hl") as HTMLElement | null;
+      if (markEl) {
+        const id = Number(markEl.getAttribute("data-annotation-id"));
+        const ann = annotations.find((a) => a.id === id);
+        if (ann) openEdit(ann, markEl);
+      }
+    };
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    container.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      clearLongPress();
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [container, chapter, annotations]);
+
   // 点击气泡外部：关闭（编辑气泡同时保存）；Esc 关闭编辑气泡。
+  // 用 pointerdown 而非 mousedown：触屏的合成鼠标事件时序不稳，pointer 事件统一覆盖。
   useEffect(() => {
     if (!createDraft && !editDraft) return;
-    const onMouseDown = (e: MouseEvent) => {
+    const onPointerDown = (e: PointerEvent) => {
       if (bubbleRef.current && !bubbleRef.current.contains(e.target as Node)) {
         suppressClickRef.current = true;
         if (editDraft) commitEdit();
@@ -200,14 +289,35 @@ export function AnnotationLayer({
         }
       }
     };
-    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createDraft, editDraft]);
+
+  // 触屏键盘避让：textarea 聚焦（键盘弹出）或 visualViewport 变化时把气泡移到
+  // 可视区上方，避免被系统键盘遮挡。桌面不启用。
+  const bubbleOpen = !!(createDraft || editDraft);
+  useEffect(() => {
+    if (!bubbleOpen || !IS_TOUCH) return;
+    const moveToTop = () => {
+      const vv = window.visualViewport;
+      const top = Math.max(MARGIN, (vv ? vv.offsetTop : 0) + MARGIN * 2);
+      const maxTop = window.innerHeight - BUBBLE_H - MARGIN;
+      setCreateDraft((d) => (d ? { ...d, y: Math.min(top, maxTop) } : d));
+      setEditDraft((d) => (d ? { ...d, y: Math.min(top, maxTop) } : d));
+    };
+    const textarea = bubbleRef.current?.querySelector<HTMLTextAreaElement>(".annotation-bubble-note");
+    textarea?.addEventListener("focus", moveToTop);
+    window.visualViewport?.addEventListener("resize", moveToTop);
+    return () => {
+      textarea?.removeEventListener("focus", moveToTop);
+      window.visualViewport?.removeEventListener("resize", moveToTop);
+    };
+  }, [bubbleOpen]);
 
   // ---------- 保存动作 ----------
   const saveCreate = async () => {
@@ -261,9 +371,9 @@ export function AnnotationLayer({
       {bubble && (
         <div
           ref={bubbleRef}
-          className="annotation-bubble"
+          className={IS_TOUCH ? "annotation-bubble annotation-bubble-touch" : "annotation-bubble"}
           style={{ left: bubble.x, top: bubble.y }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           {createDraft ? (
             <>

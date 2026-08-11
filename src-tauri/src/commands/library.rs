@@ -53,6 +53,65 @@ pub fn import_books(
     Ok(result)
 }
 
+/// Android 移动端导入：前端经 tauri-plugin-android-fs 的 ACTION_OPEN_DOCUMENT
+/// 选择器返回带读权限的 content:// URI，此处用其 ContentResolver 流式拷入
+/// 书库临时文件后复用 `import_one`。桌面端返回 NOT_ANDROID 错误。
+#[tauri::command]
+pub fn import_books_from_uris(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    uris: Vec<String>,
+) -> Result<ImportResult, AppError> {
+    use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
+
+    let lib_dir = fs::library_dir(&state.app_data_dir);
+    let mut result = ImportResult {
+        succeeded: Vec::new(),
+        failed: Vec::new(),
+    };
+    let conn = state.db.lock().map_err(|_| AppError::Internal("state lock poisoned".to_string()))?;
+    std::fs::create_dir_all(&lib_dir)?;
+    let tmp_dir = lib_dir.join(".import");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let afs = app.android_fs();
+
+    for uri in uris {
+        let furi = FsUri::from_uri(&uri);
+        let name = afs.get_name_or_last_path_segment(&furi);
+        let mut src = match afs.open_file_readable(&furi) {
+            Ok(f) => f,
+            Err(e) => {
+                result.failed.push(FailedImport { path: uri.clone(), reason: e.to_string() });
+                continue;
+            }
+        };
+        // 临时文件落在书库的独立子目录 `.import` 内，保留原文件名，供
+        // import_one 探测格式、拷贝入库；完成后清理临时目录。
+        let tmp = tmp_dir.join(&name);
+        let mut tmp_file = match std::fs::File::create(&tmp) {
+            Ok(f) => f,
+            Err(e) => {
+                result.failed.push(FailedImport { path: uri.clone(), reason: e.to_string() });
+                continue;
+            }
+        };
+        if let Err(e) = std::io::copy(&mut src, &mut tmp_file) {
+            drop(tmp_file);
+            let _ = std::fs::remove_file(&tmp);
+            result.failed.push(FailedImport { path: uri.clone(), reason: e.to_string() });
+            continue;
+        }
+        drop(tmp_file);
+        match import_one(&conn, &lib_dir, &tmp) {
+            Ok(book) => result.succeeded.push(book),
+            Err(e) => result.failed.push(FailedImport { path: uri.clone(), reason: e.to_string() }),
+        }
+        let _ = std::fs::remove_file(&tmp);
+    }
+    let _ = std::fs::remove_dir(&tmp_dir);
+    Ok(result)
+}
+
 fn import_one(conn: &rusqlite::Connection, lib_dir: &Path, src: &Path) -> Result<Book, AppError> {
     if !src.exists() {
         return Err(AppError::FileNotFound(src.display().to_string()));
