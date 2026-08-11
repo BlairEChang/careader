@@ -5,6 +5,13 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tauri + React + Typescript</title>
+    <!-- pdf.js（ES2024 Iterator helpers）要求全局 Iterator；WebView <117（含模拟器 113）
+         缺失。此处注入最小 polyfill，pdf.js 自带的 join 实现由它自己补齐。 -->
+    <script>
+      if (typeof Iterator === "undefined") {
+        globalThis.Iterator = function Iterator() {};
+      }
+    </script>
   </head>
 
   <body>
