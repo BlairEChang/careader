@@ -46,9 +46,17 @@ export function isAndroid(): boolean {
 
 export const api = {
   importBooks: (paths: string[]) => invoke<ImportResult>("import_books", { paths }),
-  /** Android：dialog.open() 返回 content:// URI，走 ContentResolver 导入命令。 */
+  /** Android：SAF 返回的 content:// URI 经 ContentResolver 导入（见 import_books_from_uris）。 */
   importBooksFromUris: (uris: string[]) =>
     invoke<ImportResult>("import_books_from_uris", { uris }),
+  /** Android：调 android-fs 的 ACTION_OPEN_DOCUMENT 文件选择器，返回带读权限的 URI 列表。 */
+  androidShowOpenFilePicker: (multiple: boolean, mimeTypes: string[]) =>
+    invoke<{ uri: string }[]>("plugin:android-fs|show_open_file_picker", {
+      multiple,
+      mimeTypes,
+      needWritePermission: false,
+      localOnly: true,
+    }),
   listBooks: () => invoke<Book[]>("list_books"),
   removeBook: (id: number) => invoke<void>("remove_book", { id }),
 

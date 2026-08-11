@@ -1,6 +1,6 @@
 # Careader Android 移植评估报告
 
-> 状态：M0–M3 已实施完毕并通过编译验证（桌面 cargo check、`aarch64-linux-android` cargo check、`pnpm build`）；M4 真机回归与签名打包待做。本报告记录移植可行性、阻塞点、风险与实施路线。
+> 状态：M0–M3 已实施完毕并通过编译验证；M4 模拟器全链路回归已打通（导入/书架/移除验证通过；首次导入 title 与落盘文件名正确）。剩真机回归与签名打包待做。本报告记录移植可行性、阻塞点、风险与实施路线。
 
 ## 1. 结论
 
@@ -47,17 +47,19 @@
 
 ### 4.1 【阻塞点】文件导入 —— Android 返回 content:// URI
 
-**现状（已解决）**：`ImportDialog.tsx` `dialog.open()` 返回路径 → `import_books` 用 `std::fs::copy()` 拷入书库（`commands/library.rs`）。
+**现状（已解决）**：`ImportDialog.tsx` 桌面用 `dialog.open()` 返回路径 → `import_books` 用 `std::fs::copy()` 拷入书库（`commands/library.rs`）；Android 走 `android-fs` 的 `ACTION_OPEN_DOCUMENT` 选择器。
 
 **问题（已实施）**：Tauri 官方明确，Android 上 `dialog.open()` 返回 `content://` URI（由 SAF 内容提供者授予），**不是文件系统路径**，`std::fs` 无法读取，导入必然失败。
 
-**实施方案（已落地）**：新增 command `import_books_from_uris`（`commands/library.rs`），经 `tauri-plugin-android-fs`（v29，ContentResolver 封装）读取：
+**实施与修复过程（全部已在模拟器验证）**：
 
-- `Cargo.toml` 引入 `tauri-plugin-android-fs = "29"`，`lib.rs` `.plugin(tauri_plugin_android_fs::init())`；该插件桌面构建为空实现（`open_file_readable` 返回 NOT_ANDROID），不影响桌面。
-- 流程：`FsUri::from_uri(uri)` → `afs.get_name()` 取文件名 → `afs.open_file_readable()` 得 `std::fs::File` → `std::io::copy` 流式写入书库 `.import-{name}` 临时文件 → 复用现有 `import_one`（格式探测/拷贝入库/解析/清理）→ 删除临时文件；失败逐本记入 `failed`，批次语义与桌面一致。
-- 前端：`api.ts` 新增 `isAndroid()`（UA 检测）与 `api.importBooksFromUris`；`libraryStore.ts` `importBooks` 按平台分流。
-- 优点：PDF/大文件流式拷贝无内存压力，导入体验与桌面一致。
-- 待真机验证：SAF 授予的 URI 权限在进程内有效期、`get_name` 对无 DISPLAY_NAME 提供者的回退行为。
+- 新增 command `import_books_from_uris`（`commands/library.rs`），经 `tauri-plugin-android-fs`（v29，ContentResolver 封装）读取，流程：`FsUri::from_uri` → `get_name_or_last_path_segment` → `open_file_readable` 流式拷贝到书库临时文件 → 复用 `import_one`。
+- **选择器必须用 `ACTION_OPEN_DOCUMENT`**：`tauri-plugin-dialog` 的 Android 实现走 `ACTION_GET_CONTENT`，其授予的 URI 对 `DownloadStorageProvider` 会 `Permission Denial`（要求 ACTION_OPEN_DOCUMENT 或相关 API，见 DialogPlugin.kt 与 DownloadStorageProvider）。前端 Android 分支改调 `plugin:android-fs|show_open_file_picker`（内部 `ACTION_OPEN_DOCUMENT`，返回带读权限的 content:// URI）。
+- **capabilities 必须加 `android-fs:default`**：否则前端调 android-fs 命令报 `Command not found / not allowed`。注意 capabilities 改动不触发 watch 重编译，需 touch `src-tauri/src/lib.rs` 强制重编重装。
+- **书库目录必须预创建**：`import_books_from_uris` 曾因缺少 `create_dir_all(lib_dir)` 导致 `File::create` 报 `No such file or directory (os error 2)`——这是模拟器回归时定位到的真正阻断点。
+- **临时文件名**：临时文件放在独立的 `.import/` 子目录且保留原文件名，避免 `.import-` 前缀污染 `import_one` 解析出的 title 与最终入库文件名。
+- 失败逐本记入 `failed`，批次语义与桌面一致。
+- 真机待验证项：SAF URI 权限进程内有效期、不同 provider（Downloads/ExternalStorage/Media）下 `get_name_or_last_path_segment` 回退行为、大文件流式拷贝性能。
 
 ### 4.2 【风险】asset protocol 真机兼容性
 
@@ -85,7 +87,7 @@
 | M1 | ContentResolver 导入命令 + 前后端分流改造 | 1–2 人日 | ✅ 完成（tauri-plugin-android-fs） |
 | M2 | asset protocol 真机验证 + 字节流回退 | 0.5–1 人日 | ✅ 完成（三层降级已落地，真机待验） |
 | M3 | 触屏 UI 适配（翻页/标注/返回键/响应式） | 2–3 人日 | ✅ 完成（编译通过，真机待验） |
-| M4 | 真机全链路回归 + 打包 | 0.5–1 人日 | ⏳ 待做 |
+| M4 | 全链路回归 + 打包 | 0.5–1 人日 | ⏳ 模拟器导入回归已通，真机 + 签名打包待做 |
 
 ## 6. 推荐实施路线
 
@@ -93,11 +95,13 @@
 2. **M1** 打通导入（唯一阻塞点），先验证 TXT/EPUB 在真机可读可续读。 ✅（真机待验）
 3. **M2** 验证 PDF/图片 asset 加载，决定是否需要回退路径。 ✅（回退已落地，真机待验）
 4. **M3** 触屏适配（此时已有可运行版本，边适配边验收）。 ✅（真机待验）
-5. **M4** 回归 + 签名打包。 ⏳
+5. **M4** 回归 + 签名打包。 ⏳（模拟器导入链路回归 ✅，真机 + 打包待做）
 
 ## 7. 关键决策记录
 
 - **导入方案**：采用 Rust ContentResolver 命令（桌面端 `import_books` 保持不变）。落地时未用 JNI 手写（tauri 2.11 未公开 Activity 访问 API），改用 `tauri-plugin-android-fs` v29（`open_file_readable` 直接返回 `std::fs::File`）。
+- **SAF 选择器选型**：Android 导入不用 `tauri-plugin-dialog`（其走 `ACTION_GET_CONTENT`，DownloadStorageProvider Permission Denial），改用 android-fs `show_open_file_picker`（`ACTION_OPEN_DOCUMENT`），且 capabilities 必须含 `android-fs:default`（snake_case 命令名，如 `show_open_file_picker`/`get_name`；camelCase 会被拒）。
+- **模拟器回归发现的两个坑**：① `import_books_from_uris` 需先 `create_dir_all` 书库目录（否则 `File::create` ENOENT）；② SAF URI 权限按 app 进程实例授予，重装/重启后旧 URI 失效，但同进程内 picker 返回→立即导入正常。
 - **asset 回退**：不依赖运行时开关，前端三级降级自动切换；新增 `read_asset_bytes` 命令（含路径白名单校验），默认编译进全部平台。
 - **触屏适配**：翻页采用滑动 + 左右点击区；标注用长按选中文本弹气泡；Android 返回键用 `@tauri-apps/api/app` 的 `onBackButtonPress`（Tauri 2.9+ 内置，仅转发事件），卸载时 unregister。
 - **目标范围**：M0–M3 已实施完毕，`src-tauri/gen/android` 脚手架已生成（未签名，待 M4 打包）。
