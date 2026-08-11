@@ -15,6 +15,7 @@
 // 其余形式兜底忽略。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import {
   GlobalWorkerOptions,
   getDocument,
@@ -457,6 +458,47 @@ export function PdfViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase, seekPage, layout]);
 
+  // ---------- 键盘翻页 / 点击半区翻页（与重排书对齐） ----------
+  const turnPage = useCallback(
+    (dir: 1 | -1) => {
+      const next = currentPage + dir;
+      if (next >= 1 && next <= pageCount) {
+        scrollToPage(next);
+        updateWindow();
+      }
+    },
+    [currentPage, pageCount, scrollToPage, updateWindow],
+  );
+
+  useEffect(() => {
+    if (state.phase !== "ready") return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      let dir: 1 | -1 | null = null;
+      if (e.key === "ArrowLeft" || e.key === "PageUp" || (e.key === " " && e.shiftKey)) dir = -1;
+      else if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") dir = 1;
+      if (dir == null) return;
+      e.preventDefault();
+      turnPage(dir);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state.phase, turnPage]);
+
+  // 点击左右半区翻页；有文本选区（选词/复制）时不翻页。
+  const handleScrollClick = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      if (x < 0.5) turnPage(-1);
+      else turnPage(1);
+    },
+    [turnPage],
+  );
+
   // 卸载兜底：flush 尚未上报的进度（换书/关闭不丢最后一页）。
   useEffect(() => {
     return () => {
@@ -616,7 +658,7 @@ export function PdfViewer({
           <p>{state.message}</p>
         </div>
       ) : (
-        <div className="pdf-scroll" ref={scrollRef}>
+        <div className="pdf-scroll" ref={scrollRef} onClick={handleScrollClick}>
           <div className="pdf-sheet" style={{ width: sheetWidth, height: totalHeight }}>
             {windowPages?.map((p) => (
               <PdfPageCanvas
